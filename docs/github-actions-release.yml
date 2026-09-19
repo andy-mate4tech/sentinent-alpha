@@ -1,0 +1,42 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --release
+      - run: cp build/app/outputs/flutter-apk/app-release.apk sentient-alpha.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: sentient-alpha.apk
+          generate_release_notes: true
+          name: Sentient Alpha ${{ github.ref_name }}
+          body: |
+            Android APK — no sign-in. Open the app, enter a ticker or name, plus cost or buy date.
+
+            Install: allow unknown sources, then open `sentient-alpha.apk`.
+            Research / informational only, not investment advice.

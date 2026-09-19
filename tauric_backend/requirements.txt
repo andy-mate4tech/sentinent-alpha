@@ -1,0 +1,5 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+# Install TradingAgents from source, not PyPI:
+#   git clone https://github.com/TauricResearch/TradingAgents.git
+#   pip install ./TradingAgents
