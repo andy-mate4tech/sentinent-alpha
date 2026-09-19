@@ -1,0 +1,110 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sentient
+      POSTGRES_PASSWORD: sentient
+      POSTGRES_DB: sentient
+    volumes:
+      - sa_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentient -d sentient"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - sa_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # OpenAI-compatible proxy → host kimi-cli / cursor-agent (mounted).
+  # Prefer this over host.docker.internal (often firewalled).
+  llm-bridge:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_TAURIC: "0"
+    env_file: .env
+    environment:
+      LLM_MODE: ${LLM_MODE:-cli}
+      LLM_CLI_PROVIDER: ${LLM_CLI_PROVIDER:-kimi}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PATH: /host/bin:/usr/local/bin:/usr/bin:/bin
+    volumes:
+      - ./backend/app:/app/app:ro
+      - /root/.local/bin:/host/bin:ro
+      - /root/.local/share/uv/tools/kimi-code:/root/.local/share/uv/tools/kimi-code:ro
+      - /root/.local/share/uv/python:/root/.local/share/uv/python:ro
+      - /root/.kimi:/root/.kimi
+      - /root/.config:/root/.config
+      - /root/.cursor:/root/.cursor:ro
+    ports:
+      - "8099:8099"
+    command: uvicorn app.llm_bridge.server:app --host 0.0.0.0 --port 8099
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_TAURIC: "${INSTALL_TAURIC:-0}"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sentient:sentient@postgres:5432/sentient
+      REDIS_URL: redis://redis:6379/0
+      ALLOW_INSECURE_NOAUTH: "${ALLOW_INSECURE_NOAUTH:-1}"
+      LLM_BRIDGE_URL: http://llm-bridge:8099/v1
+    ports:
+      - "8010:8000"
+    volumes:
+      - sa_data:/data
+      - ./vendor/TradingAgents:/opt/TradingAgents:ro
+      - ./backend/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-bridge:
+        condition: service_started
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_TAURIC: "${INSTALL_TAURIC:-0}"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sentient:sentient@postgres:5432/sentient
+      REDIS_URL: redis://redis:6379/0
+      ALLOW_INSECURE_NOAUTH: "${ALLOW_INSECURE_NOAUTH:-1}"
+      LLM_BRIDGE_URL: http://llm-bridge:8099/v1
+      LLM_MODE: ${LLM_MODE:-cli}
+    volumes:
+      - sa_data:/data
+      - ./vendor/TradingAgents:/opt/TradingAgents:ro
+      - ./backend/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      llm-bridge:
+        condition: service_started
+    command: arq app.workers.tasks.WorkerSettings
+
+volumes:
+  sa_pg:
+  sa_redis:
+  sa_data:

@@ -1,0 +1,11 @@
+# Production overlay: never allow open auth; require pairing + TLS at reverse proxy.
+services:
+  api:
+    environment:
+      ALLOW_INSECURE_NOAUTH: "0"
+      API_CORS_ORIGINS: "https://sentient.mate4tech.au"
+  worker:
+    environment:
+      ALLOW_INSECURE_NOAUTH: "0"
+  llm-bridge:
+    profiles: ["never"]
